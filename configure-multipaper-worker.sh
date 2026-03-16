@@ -163,10 +163,11 @@ echo "  Detach with:  Ctrl+A then D"
 STARTSCRIPT
 
 chmod +x "$START_SCRIPT"
-chown "$MC_USER":"$MC_USER" "$START_SCRIPT"
+chown -R "$MC_USER":"$MC_USER" "$MC_HOME"
+chmod 755 "$MC_HOME"
 echo "      Start script written."
 
-# ── 7. Register cron job (runs at boot as MC_USER) ──────────
+# ── Register cron job (runs at boot as MC_USER) ─────────────
 echo "[8/8] Installing cron job for $MC_USER..."
 CRON_JOB="@reboot sleep 20 && $START_SCRIPT >> /var/log/minecraft_boot.log 2>&1"
 CRON_TMP=$(mktemp)
@@ -181,7 +182,7 @@ echo "      Cron job registered."
 # ── First run ───────────────────────────────────────────────
 echo ""
 echo "===== Starting server for the first time ====="
-sudo -u "$MC_USER" "$START_SCRIPT"
+sudo -u "$MC_USER" -i "$START_SCRIPT"
 
 echo ""
 echo "====================================================="
