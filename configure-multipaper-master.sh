@@ -28,7 +28,7 @@ echo "===== MultiPaper Master Setup Started: $(date) ====="
 # ── 1. Install Java JDK 17 ──────────────────────────────────
 echo "[1/5] Installing OpenJDK 17..."
 apt-get update -y
-apt-get install -y openjdk-17-jdk wget curl screen
+apt-get install -y openjdk-17-jdk wget curl
 
 java_version=$(java -version 2>&1 | head -n1)
 echo "      Installed: $java_version"
@@ -62,69 +62,53 @@ else
 fi
 chown "$MC_USER":"$MC_USER" "$MC_HOME/$JAR_NAME"
 
-# ── 5. Create start script ──────────────────────────────────
-echo "[5/5] Writing start script to $START_SCRIPT..."
-cat > "$START_SCRIPT" <<'STARTSCRIPT'
-#!/bin/bash
-# MultiPaper Master Start Script
+# ── 5. Create systemd service ───────────────────────────────
+echo "[5/5] Writing systemd service..."
+cat > /etc/systemd/system/multipaper-master.service <<EOF
+[Unit]
+Description=MultiPaper Master
+After=network.target
+Wants=network-online.target
 
-MC_HOME="/opt/multipaper-master"
-JAR_NAME="multipaper-master-2.12.3-all.jar"
-SCREEN_NAME="mpm"
-LOG_FILE="$MC_HOME/master.log"
+[Service]
+Type=simple
+User=${MC_USER}
+WorkingDirectory=${MC_HOME}
+ExecStart=/usr/bin/java -Xms512M -Xmx1G \
+  -jar ${MC_HOME}/${JAR_NAME}
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=multipaper-master
 
-cd "$MC_HOME" || exit 1
+[Install]
+WantedBy=multi-user.target
+EOF
 
-# If a screen session already exists, do nothing
-if screen -list | grep -q "$SCREEN_NAME"; then
-  echo "$(date): Master already running in screen '$SCREEN_NAME'." >> "$LOG_FILE"
-  exit 0
-fi
-
-echo "$(date): Starting MultiPaper Master..." >> "$LOG_FILE"
-screen -dmS "$SCREEN_NAME" \
-  java -Xms512M -Xmx1G \
-       -jar "$MC_HOME/$JAR_NAME"
-
-echo "$(date): Master started in screen session '$SCREEN_NAME'." >> "$LOG_FILE"
-echo "  Attach with:  screen -r $SCREEN_NAME"
-echo "  Detach with:  Ctrl+A then D"
-STARTSCRIPT
-
-chmod +x "$START_SCRIPT"
 chown -R "$MC_USER":"$MC_USER" "$MC_HOME"
 chmod 755 "$MC_HOME"
-echo "      Start script written."
 
-# ── Register cron job (runs at boot as MC_USER) ─────────────
-echo "Registering cron job for '$MC_USER'..."
-CRON_JOB="@reboot sleep 10 && $START_SCRIPT >> /var/log/mpm_boot.log 2>&1"
-CRON_TMP=$(mktemp)
-
-crontab -u "$MC_USER" -l 2>/dev/null | grep -v "$START_SCRIPT" > "$CRON_TMP" || true
-echo "$CRON_JOB" >> "$CRON_TMP"
-crontab -u "$MC_USER" "$CRON_TMP"
-rm "$CRON_TMP"
-echo "      Cron job registered."
-
-# ── First run ───────────────────────────────────────────────
-echo ""
-echo "===== Starting MultiPaper Master for the first time ====="
-sudo -u "$MC_USER" -i "$START_SCRIPT"
+systemctl daemon-reload
+systemctl enable multipaper-master.service
+systemctl start multipaper-master.service
+echo "      Systemd service enabled and started."
 
 echo ""
 echo "====================================================="
 echo " Setup complete!  $(date)"
 echo "====================================================="
 echo ""
-echo " Directory    : $MC_HOME"
-echo " Start script : $START_SCRIPT"
-echo " Log file     : $LOG_FILE"
+echo " Directory : $MC_HOME"
+echo " Log file  : $LOG_FILE"
+echo " Service   : multipaper-master.service (auto-starts on boot)"
 echo ""
 echo " Useful commands:"
-echo "   Attach to console  : sudo -u $MC_USER screen -r mpm"
-echo "   Detach (keep alive): Ctrl+A then D"
-echo "   Manual start       : sudo -u $MC_USER $START_SCRIPT"
+echo "   Check status   : systemctl status multipaper-master"
+echo "   View logs      : journalctl -u multipaper-master -f"
+echo "   Stop           : systemctl stop multipaper-master"
+echo "   Start          : systemctl start multipaper-master"
+echo "   Restart        : systemctl restart multipaper-master"
 echo ""
 echo " NOTE: Master listens on port 35353 by default."
 echo "       Ensure this port is open in your firewall/NSG."
