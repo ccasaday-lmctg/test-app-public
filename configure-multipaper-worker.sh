@@ -45,7 +45,7 @@ echo "      Server Name : $SERVER_NAME"
 # ── 1. Install Java JDK 17 ──────────────────────────────────
 echo "[1/7] Installing OpenJDK 17..."
 apt-get update -y
-apt-get install -y openjdk-17-jdk wget curl screen
+apt-get install -y openjdk-17-jdk wget curl
 
 java_version=$(java -version 2>&1 | head -n1)
 echo "      Installed: $java_version"
@@ -128,61 +128,40 @@ EOF
 chown "$MC_USER":"$MC_USER" "$MC_HOME/multipaper.yml"
 echo "      multipaper.yml written (master: ${MASTER_IP}:35353, name: ${SERVER_NAME})."
 
-# ── 7. Create start script ──────────────────────────────────
-echo "[7/7] Writing start script to $START_SCRIPT..."
-cat > "$START_SCRIPT" <<'STARTSCRIPT'
-#!/bin/bash
-# Minecraft Server Start Script
-# Runs inside a detached 'screen' session so the server
-# survives SSH disconnects and can be re-attached at any time.
+# ── 7. Create systemd service ───────────────────────────────
+echo "[7/7] Writing systemd service..."
+cat > /etc/systemd/system/minecraft.service <<EOF
+[Unit]
+Description=MultiPaper Minecraft Server
+After=network.target
+Wants=network-online.target
 
-MC_HOME="/opt/minecraft"
-JAR_NAME="multipaper-1.20.1-60.jar"
-SCREEN_NAME="minecraft"
-LOG_FILE="$MC_HOME/server.log"
+[Service]
+Type=simple
+User=${MC_USER}
+WorkingDirectory=${MC_HOME}
+ExecStart=/usr/bin/java -Xms1G -Xmx2G \
+  -XX:+UseG1GC \
+  -XX:+ParallelRefProcEnabled \
+  -XX:MaxGCPauseMillis=200 \
+  -jar ${MC_HOME}/${JAR_NAME} nogui
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=minecraft
 
-cd "$MC_HOME" || exit 1
+[Install]
+WantedBy=multi-user.target
+EOF
 
-# If a screen session already exists, do nothing
-if screen -list | grep -q "$SCREEN_NAME"; then
-  echo "$(date): Server already running in screen '$SCREEN_NAME'." >> "$LOG_FILE"
-  exit 0
-fi
+systemctl daemon-reload
+systemctl enable minecraft.service
+systemctl start minecraft.service
+echo "      Systemd service enabled and started."
 
-echo "$(date): Starting MultiPaper server..." >> "$LOG_FILE"
-screen -dmS "$SCREEN_NAME" \
-  java -Xms1G -Xmx2G \
-       -XX:+UseG1GC \
-       -XX:+ParallelRefProcEnabled \
-       -XX:MaxGCPauseMillis=200 \
-       -jar "$MC_HOME/$JAR_NAME" nogui
-
-echo "$(date): Server started in screen session '$SCREEN_NAME'." >> "$LOG_FILE"
-echo "  Attach with:  screen -r $SCREEN_NAME"
-echo "  Detach with:  Ctrl+A then D"
-STARTSCRIPT
-
-chmod +x "$START_SCRIPT"
 chown -R "$MC_USER":"$MC_USER" "$MC_HOME"
 chmod 755 "$MC_HOME"
-echo "      Start script written."
-
-# ── Register cron job (runs at boot as MC_USER) ─────────────
-echo "[8/8] Installing cron job for $MC_USER..."
-CRON_JOB="@reboot sleep 20 && $START_SCRIPT >> /var/log/minecraft_boot.log 2>&1"
-CRON_TMP=$(mktemp)
-
-# Preserve any existing crontab for the user, then append our job
-crontab -u "$MC_USER" -l 2>/dev/null | grep -v "$START_SCRIPT" > "$CRON_TMP" || true
-echo "$CRON_JOB" >> "$CRON_TMP"
-crontab -u "$MC_USER" "$CRON_TMP"
-rm "$CRON_TMP"
-echo "      Cron job registered."
-
-# ── First run ───────────────────────────────────────────────
-echo ""
-echo "===== Starting server for the first time ====="
-sudo -u "$MC_USER" -i "$START_SCRIPT"
 
 echo ""
 echo "====================================================="
@@ -190,15 +169,16 @@ echo " Setup complete!  $(date)"
 echo "====================================================="
 echo ""
 echo " Server directory : $MC_HOME"
-echo " Start script     : $START_SCRIPT"
 echo " Log file         : $LOG_FILE"
-echo " Boot cron job    : registered for user '$MC_USER'"
+echo " Service          : minecraft.service (auto-starts on boot)"
 echo ""
 echo " Useful commands:"
-echo "   Attach to console  : sudo -u $MC_USER screen -r minecraft"
-echo "   Detach (keep alive): Ctrl+A then D"
-echo "   Stop server        : In console, type 'stop'"
-echo "   Manual start       : sudo -u $MC_USER $START_SCRIPT"
+echo "   Check status   : systemctl status minecraft"
+echo "   View logs      : journalctl -u minecraft -f"
+echo "   Stop server    : systemctl stop minecraft"
+echo "   Start server   : systemctl start minecraft"
+echo "   Restart server : systemctl restart minecraft"
 echo ""
-echo " NOTE: Adjust -Xms / -Xmx in $START_SCRIPT to match your RAM."
+echo " NOTE: Adjust -Xms / -Xmx in /etc/systemd/system/minecraft.service to match your RAM."
+echo "       Run 'systemctl daemon-reload && systemctl restart minecraft' after editing."
 echo "====================================================="
