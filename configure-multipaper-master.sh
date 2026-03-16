@@ -92,7 +92,8 @@ echo "  Detach with:  Ctrl+A then D"
 STARTSCRIPT
 
 chmod +x "$START_SCRIPT"
-chown "$MC_USER":"$MC_USER" "$START_SCRIPT"
+chown -R "$MC_USER":"$MC_USER" "$MC_HOME"
+chmod 755 "$MC_HOME"
 echo "      Start script written."
 
 # ── Register cron job (runs at boot as MC_USER) ─────────────
@@ -109,7 +110,7 @@ echo "      Cron job registered."
 # ── First run ───────────────────────────────────────────────
 echo ""
 echo "===== Starting MultiPaper Master for the first time ====="
-sudo -u "$MC_USER" "$START_SCRIPT"
+sudo -u "$MC_USER" -i "$START_SCRIPT"
 
 echo ""
 echo "====================================================="
